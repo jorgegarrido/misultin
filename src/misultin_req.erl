@@ -30,14 +30,19 @@
 % NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 % POSSIBILITY OF SUCH DAMAGE.
 % ==========================================================================================================
+%%%---------------------------------------------------------------------------------------------------------
+%%% Modified :  23 Feb 2012 by Jorge Garrido <jorge.garrido@morelosoft.com>
+%%% Adobe Flex upload files using >-|-|-(°> 
+%%% ==New functionality to support upload files from Adobe Flex with SDK 3.5==
+%%%---------------------------------------------------------------------------------------------------------
 -module(misultin_req).
--vsn("0.9").
+-vsn("0.9-dev").
 
 % macros
 -define(FILE_READ_BUFFER, 64*1024).
 
 % API
--export([ok/2, ok/3, ok/4, respond/2, respond/3, respond/4, respond/5, redirect/2, redirect/3]).
+-export([ok/2, ok/3, ok/4, respond/2, respond/3, respond/4, respond/5]).
 -export([options/2]).
 -export([chunk/2, chunk/3, stream/2, stream/3, stream/4]).
 -export([raw/1, get/2]).
@@ -188,14 +193,6 @@ respond(HttpCode, Headers, Template, {misultin_req, SocketPid, _TableDateRef}) -
 	SocketPid ! {response, HttpCode, Headers, Template}.
 respond(HttpCode, Headers, Template, Vars, {misultin_req, SocketPid, _TableDateRef}) when is_list(Template) =:= true ->
 	SocketPid ! {response, HttpCode, Headers, io_lib:format(Template, Vars)}.
-
-% shortcut for redirections
--spec redirect(Url::string(), reqt()) -> term().
--spec redirect(permanent, Url::string(), reqt()) -> term().
-redirect(Url, ReqT) ->
-	respond(302, [{'Location', Url}], "", ReqT).
-redirect(permanent, Url, ReqT) ->
-	respond(301, [{'Location', Url}], "", ReqT).
 
 % Chunked Transfer-Encoding.
 -spec chunk
@@ -417,19 +414,32 @@ file_read_and_send(IoDevice, Position, ReqT) ->
 % parse multipart data
 -spec parse_multipart_form_data(Body::binary(), Boundary::binary()) -> [{Id::string(), Attributes::gen_proplist(), Data::binary()}].
 parse_multipart_form_data(Body, Boundary) ->
-	[<<>> | Parts] = re:split(Body, <<"--", Boundary/binary>>),
-	F = fun
-		(<<"--\r\n">>, Data) -> Data;
-		(Part, Data) ->
-			case re:run(Part, "Content-Disposition:\\s*form-data;\\s*name=\"([^\"]+)\"(.*)\r\n\r\n(.+)\r\n$", [{capture, all_but_first, binary}, ungreedy, dotall]) of
+    [<<>> | Parts] = re:split(Body, <<".+-", Boundary/binary>>),
+    ParsedParts = case length(Parts) == 2 of
+		      true -> Parts;
+		      false ->
+			  [_,ContDisp,_,Rest] = Parts,
+			  case Rest of
+			      <<"--">> ->
+				  [ContDisp,list_to_binary(binary_to_list(Rest) ++ "\r\n")];
+			      _        ->
+				  [ContDisp, Rest]
+			  end
+		  end,
+    F = fun
+	    (<<"--\r\n">>, Data) ->
+		Data;
+	    (Part, Data) ->
+		case re:run(Part, "Content-Disposition:\\s*form-data;\\s*name=\"([^\"]+)\"(.*)\r\n\r\n(.+)\r\n$", [{capture, all_but_first, binary}, ungreedy, dotall]) of
 				{match, [Key, Attributes, Value]} ->
-					[{binary_to_list(Key), parse_attributes(Attributes), Value}|Data];
+                                        %?LOG_WARNING("Part ~p~n", [Part]),
+                                        [{binary_to_list(Key), parse_attributes(Attributes), Value}|Data];
 				_ ->
 					?LOG_WARNING("Unknown part: ~p~n", [Part]),
 					[]
 			end
 	end,
-	lists:foldl(F, [], Parts).
+	lists:foldl(F, [], ParsedParts).
 -spec parse_attributes(Attributes::string()) -> gen_proplist().
 parse_attributes(Attributes) ->
 	case re:run(Attributes, "([^\"=;\s]+)=\"([^\"]+)\"", [{capture, all_but_first, list}, ungreedy, dotall, global]) of

@@ -245,7 +245,8 @@ headers(#c{recv_timeout = RecvTimeout, ws_loop = WsLoop} = C, #req{socket = Sock
 			% check if it's a websocket request
 			CheckWs = case WsLoop of
 				undefined -> false;
-				_Function -> misultin_websocket:check(C#c.ws_versions, Path, Headers)
+				%% patches to IE 10 - created by Jorge Garrido <zgbjgg@gmail.com>
+				_Function -> misultin_websocket:check(C#c.ws_versions, Path, patches:upgrade_ie10(Headers))
 			end,
 			case CheckWs of
 				false ->
@@ -261,7 +262,8 @@ headers(#c{recv_timeout = RecvTimeout, ws_loop = WsLoop} = C, #req{socket = Sock
 					end;
 				{true, Vsn} ->
 					?LOG_DEBUG("websocket request received", []),
-					misultin_websocket:connect(C#c.server_ref, C#c.sessions_ref, Req#req{headers = Headers, ws_force_ssl = C#c.ws_force_ssl}, #ws{vsn = Vsn, socket = Sock, socket_mode = SocketMode, peer_addr = Req#req.peer_addr, peer_port = Req#req.peer_port, path = Path, ws_autoexit = C#c.ws_autoexit}, WsLoop)
+					%% patches to IE 10
+					misultin_websocket:connect(C#c.server_ref, C#c.sessions_ref, Req#req{headers = patches:upgrade_ie10(Headers), ws_force_ssl = C#c.ws_force_ssl}, #ws{vsn = Vsn, socket = Sock, socket_mode = SocketMode, peer_addr = Req#req.peer_addr, peer_port = Req#req.peer_port, path = Path, ws_autoexit = C#c.ws_autoexit}, WsLoop)
 			end;
 		{SocketMode, Sock, _Other} ->
 			?LOG_WARNING("tcp error treating headers: ~p, send bad request error back", [_Other]),
